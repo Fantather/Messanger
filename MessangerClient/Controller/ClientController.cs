@@ -21,6 +21,8 @@ using Message = MessangerClient.Models.Interop.Message;
 
 // Добавить в UdpListener защиту от многократного создания
 
+// В ConnectionReport изменить bool на ConnectionState
+
 
 namespace MessangerClient.Controller
 {
@@ -38,6 +40,7 @@ namespace MessangerClient.Controller
         
         public event EventHandler<ChatMessageEventArgs>? ChatMessageReceived;
         public event EventHandler<ExceptionEventArgs>? NetworkError;
+        public event EventHandler<UserListUpdateEventArgs>? UserListUpdated;
 
         public ClientController(string name, string multicastIP, int multicastPort)
         {
@@ -61,8 +64,6 @@ namespace MessangerClient.Controller
         {
             _tcpTransport = new TcpNetworkTransport(_reporter);
         }
-        
-
 
 
         /* === Вспомогательные методы === */
@@ -88,6 +89,10 @@ namespace MessangerClient.Controller
             {
                 case ChatMessage chatMsg:
                     ChatMessageReceived?.Invoke(this, new ChatMessageEventArgs(chatMsg));
+                    break;
+
+                case UserListUpdate listUpdate:
+                    UserListUpdated?.Invoke(this, new UserListUpdateEventArgs(listUpdate));
                     break;
             }
         }
