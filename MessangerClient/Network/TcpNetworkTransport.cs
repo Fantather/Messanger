@@ -1,112 +1,178 @@
-﻿using MessangerClient.Models;
+﻿using MessangerClient.Models.DTO;
+using MessangerClient.Models.Events;
 using MessangerClient.Models.Reports;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 
 namespace MessangerClient.Network
 {
-    internal class TcpNetworkTransport
+    internal class TcpNetworkTransport : IDisposable
     {
         private IPEndPoint _serverEndPoint;
-
-        private IProgress<NetworkReport> _reporter;
 
         private TcpClient? _client;
         private NetworkStream? _stream;
 
-        public TcpNetworkTransport(IProgress<NetworkReport> reporter)
+        private SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+        private CancellationTokenSource? _receiveCts;
+
+        private const int LengthPrefixSize = 4;
+
+        // public event EventHandler<NetworkMessageBytesEventArgs>? MessageReceived;    // Это событие уже не нужно
+        public event EventHandler<ExceptionEventArgs>? ErrorOccured;
+        public event EventHandler<ConnectionStateEventArgs>? ConnectionStateChanged;
+
+        public TcpNetworkTransport()
         {
             IPAddress ipAddress = IPAddress.Parse("127.0.0.1");
             _serverEndPoint = new IPEndPoint(ipAddress, 57000);
-
-            _reporter = reporter;
-
-
-            _ = Task.Run(() => ReceiveMessagesAsync());
         }
 
-        public async Task ConnectToServer()
+        public async Task<bool> ConnectToServerAsync()
         {
-            if(_client != null && _client.Connected)
+            if (_client?.Connected == true)
             {
-                return;
+                return true;
             }
 
             try
             {
-                _client = new TcpClient(_serverEndPoint);
+                _client = new TcpClient();
                 await _client.ConnectAsync(_serverEndPoint);
                 _stream = _client.GetStream();
+
+                _receiveCts = new CancellationTokenSource();
+
+                InvokeConnectionStateChanged(true);
             }
-            catch (SocketException ex) { _reporter.Report(new ExceptionReport(ex)); }
-        }
-
-        public async Task SendMessageAsync(byte[] messageByte)
-        {
-            if(!IsClientOrStreamNotReady())
-                return;
-
-            await _stream.WriteAsync(messageByte, 0, messageByte.Length);
-        }
-
-        public async Task ReceiveMessagesAsync()
-        {
-            byte[] buffer = new byte[4096];
-            int bytesRead;
-
-            try
+            catch (ObjectDisposedException) { return false; }
+            catch (Exception ex)
             {
-                while (_client.Connected)
-                {
-                    bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length);
-
-                    if (bytesRead > 0)
-                    {
-                        byte[] receivedData = new byte[bytesRead];
-                        Array.Copy(buffer, receivedData, bytesRead);
-                        NetworkMessage message = NetworkMessageSerializer.Deserialize(receivedData);
-                        _reporter.Report(new MessageReport(message));
-                    }
-                    else if (bytesRead == 0)
-                    {
-                        _reporter.Report(new ConnectionReport(false));
-                        break;
-                    }
-                }
-            }
-            catch(IOException ex) { _reporter.Report(new ExceptionReport(ex)); }
-            catch(ObjectDisposedException ex) { _reporter.Report(new ExceptionReport(ex)); }
-            catch(Exception ex) { _reporter.Report(new ExceptionReport(ex));}
-        }
-        
-
-        /* === Вспомогательные методы === */
-        public bool IsClientOrStreamNotReady()
-        {
-            if(_client is null)
-            {
-                _reporter.Report(new ExceptionReport(new NullReferenceException("Попытка обращения к переменной клиента, которая является null")));
-                return false;
-            }
-
-            if (!_client.Connected)
-            {
-                _reporter.Report(new ExceptionReport(new SocketException((int)SocketError.NotConnected)));
-                return false;
-            }
-
-            if (_client is null)
-            {
-                _reporter.Report(new ExceptionReport(new NullReferenceException("Попытка обращения к переменной Потока Данных, которая является null")));
+                InvokeErrorOccured(ex);
+                Dispose();
                 return false;
             }
 
             return true;
         }
+
+        public async Task<bool> SendMessageAsync(byte[] messageBytes, CancellationToken cancellationToken = default)
+        {
+            await _sendLock.WaitAsync();
+            try
+            {
+                if (!IsConnected())
+                {
+                    InvokeErrorOccured(new InvalidOperationException("Клиент не готов для отправки сообщений"));
+                    return false;
+                }
+
+                byte[] messageLengthBytes = BitConverter.GetBytes(messageBytes.Length);
+                await _stream.WriteAsync(messageLengthBytes, 0, LengthPrefixSize, cancellationToken);
+                await _stream.WriteAsync(messageBytes, 0, messageBytes.Length, cancellationToken);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                InvokeErrorOccured(ex);
+                return false;
+            }
+        }
+
+        public async IAsyncEnumerable<byte[]> ReadMessagesAsync([EnumeratorCancellation] CancellationToken ct = default)
+        {
+            while (!ct.IsCancellationRequested && _client.Connected)
+            {
+                byte[] receivedData;
+                try
+                {
+                    byte[] messageLengthBytes = new byte[LengthPrefixSize];
+
+                    if (!IsConnected())
+                        break;
+
+                    messageLengthBytes = await ReadExactlyAsync(LengthPrefixSize, ct);
+                    int messageLength = BitConverter.ToInt32(messageLengthBytes, 0);
+
+                    receivedData = await ReadExactlyAsync(messageLength, ct);
+                }
+                catch (ObjectDisposedException) { yield break; }
+                catch (OperationCanceledException ex)
+                {
+                    InvokeErrorOccured(ex);
+                    yield break;
+                }
+                catch (Exception ex)
+                {
+                    InvokeErrorOccured(ex);
+                    Dispose();
+                    yield break;
+                }
+
+                yield return receivedData;
+            }
+        }
+
+        public void Dispose()
+        {
+            _receiveCts?.Cancel();
+            _receiveCts?.Dispose();
+            _receiveCts = null;
+
+            _stream?.Dispose();
+            _stream = null;
+
+            _client?.Dispose();
+            _client = null;
+
+            InvokeConnectionStateChanged(false);
+        }
+
+
+        /* === Вспомогательные методы === */
+        private bool IsConnected() => _client?.Connected == true && _stream != null;
+
+        private void InvokeErrorOccured(Exception ex)
+        {
+            ErrorOccured?.Invoke(this, new ExceptionEventArgs(ex));
+        }
+
+        private void InvokeConnectionStateChanged(bool state)
+        {
+            ConnectionStateChanged?.Invoke(this, new ConnectionStateEventArgs(state));
+        }
+
+        //private void InvokeMessageReceived(byte[] message)
+        //{
+        //    MessageReceived?.Invoke(this, new NetworkMessageBytesEventArgs(message));
+        //}
+
+        private async Task<byte[]> ReadExactlyAsync(int messageLength, CancellationToken ct)
+        {
+            byte[] buffer = new byte[messageLength];
+            int offset = 0;
+            
+            while(offset < messageLength)
+            {
+                int bytesRead = await _stream.ReadAsync(buffer, offset, messageLength - offset, ct);
+
+                if(bytesRead == 0)
+                    throw new EndOfStreamException("Соединение разорвано до получения всех данных");
+
+                offset += bytesRead;
+            }
+
+            return buffer;
+        }
+
+
     }
 }

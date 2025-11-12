@@ -1,5 +1,7 @@
-﻿using MessangerClient.Models;
+﻿using MessangerClient.Models.DTO;
+using MessangerClient.Models.Events;
 using MessangerClient.Models.Reports;
+using MessangerClient.Network.Serializers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,13 +12,16 @@ using System.Threading.Tasks;
 
 namespace MessangerClient.Network
 {
-    internal class UdpNetworkMultycastListener
+    internal class UdpNetworkMultycastListener : IDisposable
     {
         private readonly IPAddress _multycastIp;
         private readonly int _port;
 
         private readonly UdpClient _udpClient;
         private CancellationTokenSource? _multycastCts;
+
+        public event EventHandler<NetworkMessageBytesEventArgs>? MessageReceived;
+        public event EventHandler<ExceptionEventArgs>? ErrorOccured;
 
         public UdpNetworkMultycastListener(IPAddress multycastIp, int port)
         {
@@ -28,11 +33,11 @@ namespace MessangerClient.Network
             _udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         }
 
-        public void StartLisnteningMultycast(IProgress<NetworkReport> reporter)
+        public void StartLisnteningMultycast()
         {
             _udpClient.JoinMulticastGroup(_multycastIp);
             _multycastCts = new CancellationTokenSource();
-            _ = ListenLoopAsync(_multycastCts.Token, reporter);
+            _ = ListenLoopAsync(_multycastCts.Token);
         }
 
         public void StopListeningMultycast()
@@ -40,22 +45,29 @@ namespace MessangerClient.Network
             _multycastCts?.Cancel();
         }
 
+        public void Dispose()
+        {
+            _multycastCts?.Cancel();
+            _multycastCts?.Dispose();
+
+            _udpClient?.Dispose();
+        }
+
 
         /* === Вспомогательные методы === */
-        private async Task ListenLoopAsync(CancellationToken ct, IProgress<NetworkReport> reporter)
+        private async Task ListenLoopAsync(CancellationToken ct)
         {
             try
             {
                 while (true)
                 {
                     UdpReceiveResult result = await _udpClient.ReceiveAsync(ct);
-                    NetworkMessage message = NetworkMessageSerializer.Deserialize(result.Buffer);
-                    reporter.Report(new MessageReport(message));
+                    MessageReceived?.Invoke(this, new NetworkMessageBytesEventArgs(result.Buffer));
                 }
             }
             catch (OperationCanceledException) { }
             catch (ObjectDisposedException) { }
-            catch (Exception ex) { reporter.Report(new ExceptionReport(ex)); }
+            catch (Exception ex) { ErrorOccured?.Invoke(this, new ExceptionEventArgs(ex)); }
             finally { _udpClient.DropMulticastGroup(_multycastIp); }
         }
     }

@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MessangerClient.Models
+namespace MessangerClient.Models.DTO
 {
     internal class PingRequestMessage : NetworkMessage
     {

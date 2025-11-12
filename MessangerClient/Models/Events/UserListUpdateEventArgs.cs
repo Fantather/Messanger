@@ -1,4 +1,5 @@
-﻿using System;
+﻿using MessangerClient.Models.DTO;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,7 +9,7 @@ namespace MessangerClient.Models.Events
 {
     internal class UserListUpdateEventArgs : EventArgs
     {
-        public UserListUpdate UpdateList { get; }
-        public UserListUpdateEventArgs(UserListUpdate updateList) => UpdateList = updateList;
+        public UserListUpdateMessage UpdateList { get; }
+        public UserListUpdateEventArgs(UserListUpdateMessage updateList) => UpdateList = updateList;
     }
 }

@@ -7,9 +7,9 @@ using System.Threading.Tasks;
 
 namespace MessangerClient.Models.Reports
 {
-    internal class MessageReport : NetworkReport
+    internal class UserListUpdateReport : NetworkReport
     {
-        public NetworkMessage Message { get; }
-        public MessageReport(NetworkMessage message) => Message = message;
+        public UserListUpdateMessage Users { get; set; }
+        public UserListUpdateReport(UserListUpdateMessage users) => Users = users;
     }
 }

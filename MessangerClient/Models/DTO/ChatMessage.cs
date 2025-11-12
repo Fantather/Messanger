@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MessangerClient.Models
+namespace MessangerClient.Models.DTO
 {
     internal class ChatMessage : NetworkMessage
     {
@@ -15,6 +15,11 @@ namespace MessangerClient.Models
         {
             Name = name;
             Message = message;
+        }
+
+        public override string ToString()
+        {
+            return Name + ": " + Message;
         }
     }
 }

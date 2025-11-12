@@ -4,12 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MessangerClient.Models
+namespace MessangerClient.Models.DTO
 {
-    internal class UserListUpdate : NetworkMessage
+    internal class UserListUpdateMessage : NetworkMessage
     {
         private readonly List<User> _users;
-        public UserListUpdate(List<User> users)
+        public UserListUpdateMessage(List<User> users)
         {
             _users = users;
         }
