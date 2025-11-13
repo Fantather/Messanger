@@ -110,7 +110,7 @@ namespace MessangerClient.Network
                 _receiveCts = new CancellationTokenSource();
 
                 // Говорим не возвращаться в UI поток, после завершения метода
-                // То есть, весь оставшийся код будет тоже выполнен в ThreadPool
+                // То есть, весь оставшийся код будет выполнен в ThreadPool
                 _ = ReceiveLoopAsync(_receiveCts.Token).ConfigureAwait(false);
 
                 InvokeConnectionStateChanged(true);
