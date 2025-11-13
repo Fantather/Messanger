@@ -70,6 +70,7 @@
             nameTextBox.Name = "nameTextBox";
             nameTextBox.Size = new Size(159, 23);
             nameTextBox.TabIndex = 3;
+            nameTextBox.Text = "Client";
             // 
             // contactListListBox
             // 
@@ -112,6 +113,7 @@
             Controls.Add(sendMessageButton);
             Name = "MessengerUI";
             Text = " ";
+            FormClosing += MessengerUI_FormClosing;
             ResumeLayout(false);
             PerformLayout();
         }

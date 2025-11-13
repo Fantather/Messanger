@@ -16,32 +16,34 @@
 using MessangerClient.Controller;
 using MessangerClient.Models.DTO;
 using MessangerClient.Models.Events;
+using Serilog;
 
 namespace MessangerClient
 {
     public partial class MessengerUI : Form
     {
         ClientController _controller;
-        public MessengerUI()
+
+        // Подключение к серверу, подписка на события, с подключением запускается прослушивание
+        public MessengerUI(ILogger logger)
         {
             InitializeComponent();
-            _controller = new ClientController(nameTextBox.Text);
+            _controller = new ClientController(nameTextBox.Text, logger);
             _controller.ChatMessageReceived += OnChatMessageReceive;
             _controller.NetworkError += OnNetworkError;
             _ = ConnectToServer();
         }
 
+        // Отправляет сообщение и записывает отображает это сообщение в Чате
         private async void SendMessageButton_Click(object sender, EventArgs e)
         {
-            await _controller.SendMessage(nameTextBox.Text, messageTextBox.Text);
+            await _controller.SendMessage(messageTextBox.Text);
             userChatListBox.Items.Add($"{nameTextBox}: {messageTextBox.Text}");
         }
 
+        
         private void OnChatMessageReceive(object? sender, EventArgs e)
         {
-            //if (e is ChatMessageEventArgs chat)
-            //    userChatListBox.Items.Add(chat.ChatMessage.ToString());
-
             if (e is ChatMessageEventArgs chat)
             {
                 ChatMessage message = chat.ChatMessage;
@@ -57,19 +59,32 @@ namespace MessangerClient
                 }
                 else
                 {
-                    userChatListBox.Items.Add(displayText);
+                    userChatListBox.Items.Add(displayText + "111111111111111");
                 }
             }
             else
                 ShowWarningMessageBox($"В обработчик {nameof(OnChatMessageReceive)} передан неизвестный тип данных");
         }
 
+        // Обработчик исключений из констроллера
+        // Записывает исключения в поле чата (Что бы можно было посмотреть в любой момент,
+        // потом вывод логов добавлю и будут выводиться окошечки)
         private void OnNetworkError(object? sender, EventArgs e)
         {
             if (e is ExceptionEventArgs exArgs)
             {
                 Exception ex = exArgs.Exception;
-                userChatListBox.Items.Add(ex);
+                if (userChatListBox.InvokeRequired)
+                {
+                    userChatListBox.Invoke(() =>
+                    {
+                        userChatListBox.Items.Add(ex.Message);
+                    });
+                }
+                else
+                {
+                    userChatListBox.Items.Add(ex.Message + "111111111111111");
+                }
             }
 
             else
@@ -77,13 +92,17 @@ namespace MessangerClient
         }
 
 
+        // Срабатывает во время закрытия формы
+        private void MessengerUI_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            _controller.Dispose();
+        }
 
         /* === Вспомогательные методы === */
 
         private async Task ConnectToServer()
         {
             await _controller.ConnectToServer();
-            _ = _controller.StartReceiveMessagesAsync();
         }
 
         private void ShowWarningMessageBox(string message)

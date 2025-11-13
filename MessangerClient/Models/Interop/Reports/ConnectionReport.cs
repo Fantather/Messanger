@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MessangerClient.Models.Reports
+namespace MessangerClient.Models.Interop.Reports
 {
     internal class ConnectionReport : NetworkReport
     {

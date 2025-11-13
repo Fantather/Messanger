@@ -1,6 +1,5 @@
 ﻿using MessangerClient.Models.DTO;
 using MessangerClient.Models.Events;
-using MessangerClient.Models.Reports;
 using MessangerClient.Network;
 using MessangerClient.Network.Serializers;
 using Serilog;
@@ -18,17 +17,23 @@ using Message = MessangerClient.Models.Interop.Message;
 using Serilog.Formatting.Display;
 using System.Diagnostics.Eventing.Reader;
 
-
+/* === Нужно сделать === */
 // Работу с Message потом допилю
-
 // Добавить в UdpListener защиту от многократного создания
-
-// В ConnectionReport изменить bool на ConnectionState
-
 // Дописать сохранение в Логи
+// Дописать метод, для завершения прослушивания, без уничтожения всего объекта, хотя возможно в моём случае это излишне
+// Дописать работу с UserListUpdated
+// Добавить CTS и добавить его в Dispose и ReceiveLoopAsync
+
+// Добавить имя или id получателя в пакеты данных для сервера
+// и что бы не нарушать конфиденциальность, у меня будет приходить сначала длинна имени, потом имя
+// потом длинна сообщения и само сообщение, опять переписывать, ыаааа
 
 namespace MessangerClient.Controller
 {
+    /// <summary>
+    /// Контроллер для управление клиентской стороной мессенджера
+    /// </summary>
     internal class ClientController : IDisposable
     {
         public string ClientName { get; set; }
@@ -39,33 +44,82 @@ namespace MessangerClient.Controller
         private TcpNetworkTransport? _tcpTransport;
 
         private ILogger _logger;
-        
+
+
+        /* === События === */
+        // Все события тут созданы для общения с UI-потоком
+
+        /// <summary>
+        /// Вызывается при получении сообщения для Чата.
+        /// </summary>
+        /// <remarks>
+        /// Будет вызвано из <see cref="ThreadPool"/>, а не из UI-потока.
+        /// </remarks>
         public event EventHandler<ChatMessageEventArgs>? ChatMessageReceived;
+
+        /// <summary>
+        /// Вызывается при изменении состояния соединения (подключен/отключен).
+        /// </summary>
         public event EventHandler<ConnectionStateEventArgs>? ConnectionStateChanged;
+
+        /// <summary>
+        /// Срабатывает при отлове исключения
+        /// </summary>
+        /// <remarks>
+        /// Может быть вызвано из <see cref="ThreadPool"/>, а не из UI-потока
+        /// </remarks>
         public event EventHandler<ExceptionEventArgs>? NetworkError;
+
+        /// <summary>
+        /// Вызывается при получении обновлений в списке чатов
+        /// </summary>
+        /// <remarks>
+        /// Будет вызвано из <see cref="ThreadPool"/>, а не из UI-потока
+        /// </remarks>
         public event EventHandler<UserListUpdateEventArgs>? UserListUpdated;
 
-        public ClientController(string name)
+
+
+        /// <summary>
+        /// Инициализирует объект <see cref="ClientController"/>
+        /// и логгер
+        /// </summary>
+        /// <param name="name">
+        /// Имя пользателя, которым будут подписаны сообщения.
+        /// Так как у меня нет системы входа, сервер будет по имени определять, это одинаковые пользователи или нет.
+        /// Я добавил в User поле Id, так что может сделаю через него
+        /// </param>
+        /// <remarks>
+        /// Tcp-соединение с сервером или запуск UdpMultycast в отдельных методах
+        /// 
+        /// Принимает логгер снаружи, а не создаёт его, решил не давать возможности его не передавать, 
+        /// что бы во все вызовы логгера не пришлось добавлять "?"
+        /// </remarks>
+        public ClientController(string name, ILogger logger)
         {
             ClientName = name;
 
-            _logger = new LoggerConfiguration()
-                .MinimumLevel.Debug()
-                .WriteTo.File
-                    (
-                    "logs/log-.txt",
-                    rollingInterval: RollingInterval.Day,
-                    outputTemplate: "{Timestamp: yyyy-mm-dd HH:mm:ss.fff} [{level:u3}] {Message:lj} {NewLine}{Exception}"
-                    )
-                .CreateLogger();
+            _logger = logger;
         }
 
+
         /* === UDP === */
+        /// <summary>
+        /// Запускает Multycast-прослушиваение
+        /// </summary>
+        /// <param name="MultycastIpAdress">IPAdress мультикаст-группы</param>
+        /// <param name="port">Прослушиваемый port, на который будут приходить мультикаст-сообщения</param>
+        /// <remarks>
+        /// Запускает прослушиваение Multycast группы, 
+        /// подписывается на события у <see cref="_udpListener"/>, 
+        /// изменяет состояние <see cref="IsMultiacastListening"/>
+        /// </remarks>
         public void StartListenMultycast(string MultycastIpAdress, int port)
         {
             IPAddress multicastIP = IPAddress.Parse(MultycastIpAdress);
             _udpListener = new UdpNetworkMultycastListener(multicastIP, port);
             _udpListener.StartLisnteningMultycast();
+            IsMultiacastListening = true;
 
             _udpListener.ErrorOccured += OnExceptionOccured;
             _udpListener.MessageReceived += OnUdpMessageReceived;
@@ -73,50 +127,76 @@ namespace MessangerClient.Controller
 
 
         /* === TCP === */
-        public async Task ConnectToServer()
+        /// <summary>
+        /// Запускает попытку соединения с сервером
+        /// </summary>
+        /// 
+        /// <returns>
+        /// <see cref="Task{bool}"/>
+        /// Результат <c>true</c>, если соединение было успешно установлено (или уже существовало, до вызова метода)
+        /// или <c>false</c> в случае ошибки
+        /// </returns>
+        /// 
+        /// <remarks>
+        /// Подписывается на события <see cref="_tcpTransport"/>.
+        /// Делает запись в логгер
+        /// Изменяет состояние <see cref="IsServerConnected"/> на <c>true</c>
+        /// </remarks>
+        public async Task<bool> ConnectToServer()
         {
-            _tcpTransport = new TcpNetworkTransport();
-            await _tcpTransport.ConnectToServerAsync();
-
-            _tcpTransport.ErrorOccured += OnExceptionOccured;
-            _tcpTransport.ConnectionStateChanged += OnConnectionStateChanged;
-
-            _logger.Debug("Соединение с сервером установлено");
-        }
-
-        public async Task SendMessage(string name, string message)
-        {
-            if (IsTcpTransportNotExist())
-                return;
-
-            ChatMessage chatMessage = new ChatMessage(name, message);
-            byte[] messageByte = NetworkMessageSerializer.Serialize(chatMessage);
-            await _tcpTransport.SendMessageAsync(messageByte);
-        }
-
-        public async Task StartReceiveMessagesAsync()
-        {
-            if (IsTcpTransportNotExist())
-                return;
-
             try
             {
-                await foreach (byte[] messageBytes in _tcpTransport.ReadMessagesAsync())
-                {
-                    NetworkMessage message = NetworkMessageSerializer.Deserialize(messageBytes);
-                    HandleNetworkMessage(message);
-                }
-            }
-            catch (OperationCanceledException ex)
-            {
-                InvokeNetworkError(ex);
+                _tcpTransport = new TcpNetworkTransport(_logger);
+                bool connectionState = await _tcpTransport.ConnectToServerAsync();
+
+                _tcpTransport.ErrorOccured += OnExceptionOccured;
+                _tcpTransport.ConnectionStateChanged += OnConnectionStateChanged;
+                _tcpTransport.DataPacketReceived += OnDataPacketReceived;
+
+                IsServerConnected = true;
+                _logger.Debug("Соединение с сервером установлено");
+
+                return connectionState;
             }
             catch (Exception ex)
             {
                 InvokeNetworkError(ex);
+                return false;
             }
         }
 
+
+        /// <summary>
+        /// Асинхронно отправляет сообщение на сервер
+        /// </summary>
+        /// 
+        /// <param name="message">Сообщение, которе будет отправлено</param>
+        /// 
+        /// <returns>
+        /// <see cref="Task{TResult}"/> с результатом <c>true</c>, если данные были успешно отправлены
+        /// или с <c>false</c>, если возникло исключение.
+        /// </returns>
+        /// 
+        /// <remarks>
+        /// Имя пользоватебя извлекается из свойства <see cref="ClientName"/>
+        /// </remarks>
+        public async Task<bool> SendMessage(string message)
+        {
+            if (IsTcpTransportNotExist())
+                return false;
+
+            ChatMessage chatMessage = new ChatMessage(ClientName, message);
+            byte[] messageByte = DataPacketSerializer.Serialize(chatMessage);
+            await _tcpTransport.SendMessageAsync(messageByte);
+
+            return true;
+        }
+
+
+        /// <summary>
+        /// Освобождает все ресурсы (_tcpTransport, _udpListener, events)
+        /// используемые <see cref="ClientController"/>.
+        /// </summary>
         public void Dispose()
         {
 
@@ -124,6 +204,7 @@ namespace MessangerClient.Controller
             {
                 _tcpTransport.ErrorOccured -= OnExceptionOccured;
                 _tcpTransport.ConnectionStateChanged -= OnConnectionStateChanged;
+                _tcpTransport.DataPacketReceived -= OnDataPacketReceived;
                 _tcpTransport.Dispose();
             }
 
@@ -146,25 +227,53 @@ namespace MessangerClient.Controller
         private void OnConnectionStateChanged(object? sender, ConnectionStateEventArgs e)
         {
             ConnectionStateChanged?.Invoke(this, e);
+            IsServerConnected = e.State;
         }
 
-        private void OnUdpMessageReceived(object? sender, NetworkMessageBytesEventArgs e)
+        /// <summary>
+        /// Обработчик получения сообщения от транспортной части
+        /// </summary>
+        /// <param name="sender">Ссылка на класс, вызвавший событие</param>
+        /// <param name="e">Класс-обёртка содержащий в себе обёртку, которая хранит в себе полученные от сервера байты</param>
+        private void OnDataPacketReceived(object? sender, DataPackageBytesEventArgs e)
         {
-            NetworkMessage message = NetworkMessageSerializer.Deserialize(e.Message);
-            HandleNetworkMessage(message);
+            try
+            {
+                // Десериализуем
+                DataPacket data = DataPacketSerializer.Deserialize(e.PacketBytes);
+                HandleDataPacket(data);
+            }
+            catch (Exception ex)
+            {
+                InvokeNetworkError(ex);
+            }
+        }
+
+        //UDP
+        private void OnUdpMessageReceived(object? sender, DataPackageBytesEventArgs e)
+        {
+            DataPacket message = DataPacketSerializer.Deserialize(e.PacketBytes);
+            HandleDataPacket(message);
         }
 
         /* === Вспомогательные методы === */
 
-        private void HandleNetworkMessage(NetworkMessage result)
+        /// <summary>
+        /// Распаковывеает <see cref="DataPacket"/> в конкретный тип-наследник и в зависимости от него, решает что делать
+        /// </summary>
+        /// 
+        /// <param name="result">Полученные от сервера данные</param>
+        /// <exception cref="ArgumentException">Вызывается, если этот класс наследник не поддерживается</exception>
+        private void HandleDataPacket(DataPacket result)
         {
             switch (result)
             {
                 case ChatMessage chatMsg:
                     InvokeChatMessageReceived(chatMsg);
+                    _logger.Verbose("Сообщение в байтах обработано {chatMsg}", chatMsg);
                     break;
 
-                case UserListUpdateMessage listUpdate:
+                case UserListUpdateDataPacket listUpdate:
                     InvokeUserListUpdated(listUpdate);
                     break;
 
@@ -174,11 +283,24 @@ namespace MessangerClient.Controller
             }
         }
 
+
+        /// <summary>
+        /// Проверяет объект <see cref="TcpNetworkTransport"/> на null
+        /// </summary>
+        /// 
+        /// <returns>Возвращает <c>true</c>, если объект <see cref="TcpNetworkTransport"/> оказывается <c>null</c></returns>
+        /// 
+        /// <remarks>
+        /// Вызывает метод <see cref="InvokeNetworkError"/>, который сигнализирует об исключении.
+        /// Логгирует исключение.
+        /// </remarks>
         private bool IsTcpTransportNotExist()
         {
             if(_tcpTransport is null)
             {
-                InvokeNetworkError(new NullReferenceException($"Попытка обращения клиента к не созданному {nameof(_tcpTransport)}"));
+                Exception ex = new NullReferenceException($"Попытка обращения клиента к не созданному {nameof(_tcpTransport)}");
+                InvokeNetworkError(ex);
+                _logger.Warning(ex.Message, ex);
                 return true;
             }
             else
@@ -197,12 +319,12 @@ namespace MessangerClient.Controller
             ChatMessageReceived?.Invoke(this, new ChatMessageEventArgs(message));
         }
 
-        private void InvokeUserListUpdated(UserListUpdateMessage listUpdate)
+        private void InvokeUserListUpdated(UserListUpdateDataPacket listUpdate)
         {
             UserListUpdated?.Invoke(this, new UserListUpdateEventArgs(listUpdate));
         }
 
-        // Скорее всего не нужен
+        // Добавлю потом, когда закончу с Tcp соединением и архетиктурой
         //private async Task PingServerAsync()
         //{
         //    await _udpClient.SendAsync(JsonSerializer.SerializeToUtf8Bytes(new PingRequest()));
@@ -240,7 +362,7 @@ namespace MessangerClient.Controller
         //}
 
 
-        /* === Методы работающие с Message, потом допишу === */
+        /* === Методы работающие с Message, для совместимости с кодом группы, потом впишу поверх остального === */
 
         //private async Task WaitMessageAsync()
         //{

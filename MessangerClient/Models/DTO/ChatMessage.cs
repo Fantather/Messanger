@@ -6,7 +6,10 @@ using System.Threading.Tasks;
 
 namespace MessangerClient.Models.DTO
 {
-    internal class ChatMessage : NetworkMessage
+    /// <summary>
+    /// Представляет собой объект сообщения в чате, Передаётся по сети
+    /// </summary>
+    internal class ChatMessage : DataPacket
     {
         public string Name { get; set; }
         public string Message { get; set; }

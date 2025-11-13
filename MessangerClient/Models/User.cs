@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 
 namespace MessangerClient.Models
 {
+    /// <summary>
+    /// Класс представляющий пользователя
+    /// </summary>
     internal class User
     {
         public string Id { get; set; }

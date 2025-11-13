@@ -9,7 +9,7 @@ namespace MessangerClient.Models.Events
 {
     internal class UserListUpdateEventArgs : EventArgs
     {
-        public UserListUpdateMessage UpdateList { get; }
-        public UserListUpdateEventArgs(UserListUpdateMessage updateList) => UpdateList = updateList;
+        public UserListUpdateDataPacket UpdateList { get; }
+        public UserListUpdateEventArgs(UserListUpdateDataPacket updateList) => UpdateList = updateList;
     }
 }

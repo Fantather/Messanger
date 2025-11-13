@@ -12,7 +12,7 @@ namespace MessangerClient
         {
             // Логгер Serilog
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Debug()
+                .MinimumLevel.Verbose()
                 .WriteTo.File(
                     "Logs/log-.txt",
                     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",
@@ -29,9 +29,11 @@ namespace MessangerClient
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 
             ApplicationConfiguration.Initialize();
-            Application.Run(new MessengerUI());
+            Application.Run(new MessengerUI(Log.Logger));
         }
 
+        // Отлов неотловленных исключений из UI-потока
+        // Записывает исключение в лог и выводит сообщение об исключении для пользователя
         private static void OnGuiException(object? sender, ThreadExceptionEventArgs e)
         {
             Log.Error(e.Exception, "Поймана необработанная ошибка UI");
@@ -40,6 +42,8 @@ namespace MessangerClient
                 "Ошибка", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
+        // Отлов не отловленных исключений, возникших в фоновом потоке, которые сейчас положат мне программу
+        // Пытается успеть записать исключение в логи
         private static void OnUnhandledException(object? sender, UnhandledExceptionEventArgs e)
         {
             Exception? ex = e.ExceptionObject as Exception;

@@ -1,6 +1,5 @@
 ﻿using MessangerClient.Models.DTO;
 using MessangerClient.Models.Events;
-using MessangerClient.Models.Reports;
 using MessangerClient.Network.Serializers;
 using System;
 using System.Collections.Generic;
@@ -20,7 +19,7 @@ namespace MessangerClient.Network
         private readonly UdpClient _udpClient;
         private CancellationTokenSource? _multycastCts;
 
-        public event EventHandler<NetworkMessageBytesEventArgs>? MessageReceived;
+        public event EventHandler<DataPackageBytesEventArgs>? MessageReceived;
         public event EventHandler<ExceptionEventArgs>? ErrorOccured;
 
         public UdpNetworkMultycastListener(IPAddress multycastIp, int port)
@@ -62,7 +61,7 @@ namespace MessangerClient.Network
                 while (true)
                 {
                     UdpReceiveResult result = await _udpClient.ReceiveAsync(ct);
-                    MessageReceived?.Invoke(this, new NetworkMessageBytesEventArgs(result.Buffer));
+                    MessageReceived?.Invoke(this, new DataPackageBytesEventArgs(result.Buffer));
                 }
             }
             catch (OperationCanceledException) { }

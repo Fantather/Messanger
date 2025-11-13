@@ -5,11 +5,11 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace MessangerClient.Models.Reports
+namespace MessangerClient.Models.Interop.Reports
 {
     internal class UserListUpdateReport : NetworkReport
     {
-        public UserListUpdateMessage Users { get; set; }
-        public UserListUpdateReport(UserListUpdateMessage users) => Users = users;
+        public UserListUpdateDataPacket Users { get; set; }
+        public UserListUpdateReport(UserListUpdateDataPacket users) => Users = users;
     }
 }
