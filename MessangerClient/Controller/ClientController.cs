@@ -180,7 +180,7 @@ namespace MessangerClient.Controller
         /// <remarks>
         /// Имя пользоватебя извлекается из свойства <see cref="ClientName"/>
         /// </remarks>
-        public async Task<bool> SendMessage(string message)
+        public async Task<bool> SendMessageAsync(string message)
         {
             if (IsTcpTransportNotExist())
                 return false;

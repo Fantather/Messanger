@@ -109,6 +109,8 @@ namespace MessangerClient.Network
 
                 _receiveCts = new CancellationTokenSource();
 
+                // Говорим не возвращаться в UI поток, после завершения метода
+                // То есть, весь оставшийся код будет тоже выполнен в ThreadPool
                 _ = ReceiveLoopAsync(_receiveCts.Token).ConfigureAwait(false);
 
                 InvokeConnectionStateChanged(true);
@@ -288,7 +290,7 @@ namespace MessangerClient.Network
         /// <param name="messageLength">Количество байт, которое необходимо прочесть</param>
         /// <param name="ct">Токен для отмены ожидания сообщения с сервера</param>
         /// 
-        /// <returns><see cref="Task{byte[]}"/> Массив байтов запрошенной длинны</returns>
+        /// <returns><see cref="Task{byte[]}"/>Массив байтов запрошенной длинны</returns>
         /// 
         /// <exception cref="EndOfStreamException">
         /// Выбрасывается, если соединение было разорвано (<c>ReadAsync</c> вернул 0) 

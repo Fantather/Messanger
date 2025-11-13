@@ -37,7 +37,7 @@ namespace MessangerClient
         // Отправляет сообщение и записывает отображает это сообщение в Чате
         private async void SendMessageButton_Click(object sender, EventArgs e)
         {
-            await _controller.SendMessage(messageTextBox.Text);
+            await _controller.SendMessageAsync(messageTextBox.Text);
             userChatListBox.Items.Add($"{nameTextBox}: {messageTextBox.Text}");
         }
 
