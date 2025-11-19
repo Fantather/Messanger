@@ -12,7 +12,7 @@ namespace MessangerClient
         {
             // Логгер Serilog
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Verbose()
+                .MinimumLevel.Debug()
                 .WriteTo.File(
                     "Logs/log-.txt",
                     outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}",

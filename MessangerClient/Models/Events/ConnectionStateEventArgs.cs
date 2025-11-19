@@ -6,9 +6,18 @@ using System.Threading.Tasks;
 
 namespace MessangerClient.Models.Events
 {
+    /// <summary>
+    /// Передаёт статус соединения с сервером и при закрытии, передаёт список чатов
+    /// </summary>
     internal class ConnectionStateEventArgs : EventArgs
     {
         public bool State { get; }
-        public ConnectionStateEventArgs(bool state) => State = state;
+        public IEnumerable<Chat>? Chats { get; }
+
+        public ConnectionStateEventArgs(bool state, IEnumerable<Chat>? chats = null)
+        {
+            State = state;
+            Chats = chats;
+        }
     }
 }

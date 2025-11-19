@@ -12,10 +12,15 @@ namespace MessangerClient.Models.DTO
     /// </summary>
     internal class UserListUpdateDataPacket : DataPacket
     {
-        private readonly List<User> _users;
+        public readonly ContactList ContactList;
+
+        public UserListUpdateDataPacket(ContactList users)
+        {
+            ContactList = users;
+        }
         public UserListUpdateDataPacket(List<User> users)
         {
-            _users = users;
+            ContactList = new ContactList(users);
         }
     }
 }

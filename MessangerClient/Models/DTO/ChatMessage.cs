@@ -7,22 +7,30 @@ using System.Threading.Tasks;
 namespace MessangerClient.Models.DTO
 {
     /// <summary>
-    /// Представляет собой объект сообщения в чате, Передаётся по сети
+    /// Представляет собой объект сообщения в чате, Передаётся по сети(Хотя не должен, но переписывать уже не хочу)
     /// </summary>
     internal class ChatMessage : DataPacket
     {
-        public string Name { get; set; }
-        public string Message { get; set; }
+        public User Sender { get; set; } = new User();
+        public User Recipient { get; set; } = new User();
 
-        public ChatMessage(string name, string message)
+        public string Message { get; set; } = string.Empty;
+
+        // Для десериализации
+        public ChatMessage()
         {
-            Name = name;
+        }
+
+        public ChatMessage(User sender, User recipient, string message)
+        {
+            Sender = sender;
+            Recipient = recipient;
             Message = message;
         }
 
         public override string ToString()
         {
-            return Name + ": " + Message;
+            return Sender.Name + ": " + Message;
         }
     }
 }

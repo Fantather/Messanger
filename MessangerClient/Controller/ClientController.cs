@@ -17,6 +17,10 @@ using Message = MessangerClient.Models.Interop.Message;
 using Serilog.Formatting.Display;
 using System.Diagnostics.Eventing.Reader;
 
+using System.Diagnostics;
+using MessangerClient.Models;
+using MessangerClient.Repositories;
+
 /* === Нужно сделать === */
 // Работу с Message потом допилю
 // Добавить в UdpListener защиту от многократного создания
@@ -36,12 +40,18 @@ namespace MessangerClient.Controller
     /// </summary>
     internal class ClientController : IDisposable
     {
-        public string ClientName { get; set; }
+        public User Client { get; set; }
+
         public bool IsMultiacastListening { get; private set; }
         public bool IsServerConnected { get; private set; }
 
         private UdpNetworkMultycastListener? _udpListener;
         private TcpNetworkTransport? _tcpTransport;
+
+        ChatRepository _chatRepository;
+        ContactsListRepository _contactListRepository;
+
+        
 
         private ILogger _logger;
 
@@ -76,7 +86,7 @@ namespace MessangerClient.Controller
         /// <remarks>
         /// Будет вызвано из <see cref="ThreadPool"/>, а не из UI-потока
         /// </remarks>
-        public event EventHandler<UserListUpdateEventArgs>? UserListUpdated;
+        public event EventHandler<ContactsListUpdateEventArgs>? ContactsListUpdated;
 
 
 
@@ -97,9 +107,11 @@ namespace MessangerClient.Controller
         /// </remarks>
         public ClientController(string name, ILogger logger)
         {
-            ClientName = name;
-
+            Client = new User(name);
             _logger = logger;
+
+            _chatRepository = new ChatRepository(logger);
+            _contactListRepository = new ContactsListRepository();
         }
 
 
@@ -156,6 +168,8 @@ namespace MessangerClient.Controller
                 IsServerConnected = true;
                 _logger.Debug("Соединение с сервером установлено");
 
+                await LoadContactList();
+
                 return connectionState;
             }
             catch (Exception ex)
@@ -178,18 +192,48 @@ namespace MessangerClient.Controller
         /// </returns>
         /// 
         /// <remarks>
-        /// Имя пользоватебя извлекается из свойства <see cref="ClientName"/>
+        /// Имя пользоватебя извлекается из свойства <see cref="Client"/>
         /// </remarks>
-        public async Task<bool> SendMessageAsync(string message)
+        public async Task<bool> SendMessageAsync(string message, User recipient)
         {
             if (IsTcpTransportNotExist())
                 return false;
 
-            ChatMessage chatMessage = new ChatMessage(ClientName, message);
+            ChatMessage chatMessage = new ChatMessage(Client, recipient, message);
             byte[] messageByte = DataPacketSerializer.Serialize(chatMessage);
             await _tcpTransport.SendMessageAsync(messageByte);
 
+            await _chatRepository.SaveMessageToChat(chatMessage, Client);
+
             return true;
+        }
+
+
+        public async Task<Chat> LoadChatHistoryAsync(User companion)
+        {
+            try
+            {
+                _logger.Debug($"Загрузка истории чата для пользователя: {companion.Name}");
+
+                Chat? chat = await _chatRepository.LoadAsync(companion);
+
+                if (chat == null)
+                {
+                    _logger.Debug($"Чат для {companion.Name} не найден, создается новый");
+                    chat = new Chat(companion);
+                }
+                else
+                {
+                    _logger.Debug($"Загружен чат с {chat.Messages.Count} сообщениями");
+                }
+
+                return chat;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"Ошибка при загрузке истории чата: {ex}");
+                return new Chat(companion);
+            }
         }
 
 
@@ -218,6 +262,7 @@ namespace MessangerClient.Controller
 
 
 
+
         /* === Обработчики === */
         private void OnExceptionOccured(object? sender, ExceptionEventArgs e)
         {
@@ -227,6 +272,7 @@ namespace MessangerClient.Controller
         private void OnConnectionStateChanged(object? sender, ConnectionStateEventArgs e)
         {
             ConnectionStateChanged?.Invoke(this, e);
+
             IsServerConnected = e.State;
         }
 
@@ -235,13 +281,13 @@ namespace MessangerClient.Controller
         /// </summary>
         /// <param name="sender">Ссылка на класс, вызвавший событие</param>
         /// <param name="e">Класс-обёртка содержащий в себе обёртку, которая хранит в себе полученные от сервера байты</param>
-        private void OnDataPacketReceived(object? sender, DataPackageBytesEventArgs e)
+        private async void OnDataPacketReceived(object? sender, DataPackageBytesEventArgs e)
         {
             try
             {
                 // Десериализуем
                 DataPacket data = DataPacketSerializer.Deserialize(e.PacketBytes);
-                HandleDataPacket(data);
+                await HandleDataPacket(data);
             }
             catch (Exception ex)
             {
@@ -250,11 +296,13 @@ namespace MessangerClient.Controller
         }
 
         //UDP
-        private void OnUdpMessageReceived(object? sender, DataPackageBytesEventArgs e)
+        private async void OnUdpMessageReceived(object? sender, DataPackageBytesEventArgs e)
         {
             DataPacket message = DataPacketSerializer.Deserialize(e.PacketBytes);
-            HandleDataPacket(message);
+            await HandleDataPacket(message);
         }
+
+ 
 
         /* === Вспомогательные методы === */
 
@@ -264,17 +312,29 @@ namespace MessangerClient.Controller
         /// 
         /// <param name="result">Полученные от сервера данные</param>
         /// <exception cref="ArgumentException">Вызывается, если этот класс наследник не поддерживается</exception>
-        private void HandleDataPacket(DataPacket result)
+        private async Task HandleDataPacket(DataPacket result)
         {
             switch (result)
             {
                 case ChatMessage chatMsg:
                     InvokeChatMessageReceived(chatMsg);
-                    _logger.Verbose("Сообщение в байтах обработано {chatMsg}", chatMsg);
+
+                    ContactList contactList = await _contactListRepository.LoadAsync();
+                    if(!contactList.Users.Contains(chatMsg.Sender))
+                    {
+                        contactList.AddContact(chatMsg.Sender);
+                        InvokeUserListUpdatedAsync(contactList);
+                    }
+                    
+
+                    // Сохраняем новое сообщение в файл
+                    await _chatRepository.SaveMessageToChat(chatMsg, Client);
+
+                    _logger.Verbose("Сообщение в байтах сохранено и отправлено в UI {chatMsg}", chatMsg);
                     break;
 
                 case UserListUpdateDataPacket listUpdate:
-                    InvokeUserListUpdated(listUpdate);
+                    InvokeUserListUpdatedAsync(listUpdate.ContactList);
                     break;
 
                 default:
@@ -282,6 +342,14 @@ namespace MessangerClient.Controller
                     break;
             }
         }
+
+        private async Task LoadContactList()
+        {
+            ContactList contactList = await _contactListRepository.LoadAsync();
+            ContactsListUpdated?.Invoke(this, new ContactsListUpdateEventArgs(contactList));
+        }
+
+        
 
 
         /// <summary>
@@ -311,6 +379,7 @@ namespace MessangerClient.Controller
 
         private void InvokeNetworkError(Exception ex)
         {
+            _logger.Error(ex.Message, ex);
             NetworkError?.Invoke(this, new ExceptionEventArgs(ex));
         }
 
@@ -319,67 +388,10 @@ namespace MessangerClient.Controller
             ChatMessageReceived?.Invoke(this, new ChatMessageEventArgs(message));
         }
 
-        private void InvokeUserListUpdated(UserListUpdateDataPacket listUpdate)
+        private async void InvokeUserListUpdatedAsync(ContactList listUpdate)
         {
-            UserListUpdated?.Invoke(this, new UserListUpdateEventArgs(listUpdate));
+            ContactsListUpdated?.Invoke(this, new ContactsListUpdateEventArgs(listUpdate));
+            await _contactListRepository.SaveAsync(listUpdate);
         }
-
-        // Добавлю потом, когда закончу с Tcp соединением и архетиктурой
-        //private async Task PingServerAsync()
-        //{
-        //    await _udpClient.SendAsync(JsonSerializer.SerializeToUtf8Bytes(new PingRequest()));
-        //}
-
-
-        /* === Уже не нужный код === */
-        // private IProgress<NetworkReport> _reporter;
-
-        //private void HandleNetworkReport(NetworkReport report)
-        //{
-        //    switch (report)
-        //    {
-        //        case MessageBytesReport messageBytesReport:
-        //            NetworkMessage reportMessage = NetworkMessageSerializer.Deserialize(messageBytesReport.Message);
-        //            HandleNetworkMessage(reportMessage);
-        //            break;
-
-        //        case ExceptionReport exceptionReport:
-        //            InvokeNetworkError(exceptionReport.Exception);
-        //            break;
-
-        //        case UserListUpdateReport userListUpdateReport:
-        //            UserListUpdated?.Invoke(this, new UserListUpdateEventArgs(userListUpdateReport.Users));
-        //            break;
-
-        //        default:
-        //            InvokeNetworkError(new ArgumentException($"Клиент не умеет работать с типом {report.GetType()}"));
-        //            break;
-
-        //            //case MessageReport messageReport:                   // Больше не использую этот тип
-        //            //    HandleNetworkMessage(messageReport.Message);
-        //            //    break;
-        //    }
-        //}
-
-
-        /* === Методы работающие с Message, для совместимости с кодом группы, потом впишу поверх остального === */
-
-        //private async Task WaitMessageAsync()
-        //{
-        //    while (IsMultiacastListening)
-        //    {
-        //        UdpReceiveResult udpReceive = await _udpClient.ReceiveAsync();
-        //        _ = MessageProcessingAsync(udpReceive);
-        //    }
-        //}
-
-        //private async Task MessageProcessingAsync(UdpReceiveResult result)
-        //{
-        //    await Task.Run(() =>
-        //    {
-        //        NetworkUpdate update = _messageFactory.CreateMessageFromJson(result.Buffer);
-
-        //    });
-        //}
     }
 }

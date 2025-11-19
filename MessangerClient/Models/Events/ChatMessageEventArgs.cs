@@ -11,10 +11,5 @@ namespace MessangerClient.Models.Events
     {
         public ChatMessage ChatMessage { get; }
         public ChatMessageEventArgs(ChatMessage report) => ChatMessage = report;
-
-        public override string ToString()
-        {
-            return $"{ChatMessage.Name}: {ChatMessage.Message}";
-        }
     }
 }

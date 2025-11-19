@@ -32,7 +32,7 @@
             userChatListBox = new ListBox();
             messageTextBox = new TextBox();
             nameTextBox = new TextBox();
-            contactListListBox = new ListBox();
+            contactsListBox = new ListBox();
             label1 = new Label();
             label2 = new Label();
             SuspendLayout();
@@ -50,6 +50,7 @@
             // userChatListBox
             // 
             userChatListBox.FormattingEnabled = true;
+            userChatListBox.HorizontalScrollbar = true;
             userChatListBox.Location = new Point(189, 28);
             userChatListBox.Name = "userChatListBox";
             userChatListBox.Size = new Size(653, 379);
@@ -72,13 +73,14 @@
             nameTextBox.TabIndex = 3;
             nameTextBox.Text = "Client";
             // 
-            // contactListListBox
+            // contactsListBox
             // 
-            contactListListBox.FormattingEnabled = true;
-            contactListListBox.Location = new Point(12, 66);
-            contactListListBox.Name = "contactListListBox";
-            contactListListBox.Size = new Size(159, 439);
-            contactListListBox.TabIndex = 4;
+            contactsListBox.FormattingEnabled = true;
+            contactsListBox.Location = new Point(12, 66);
+            contactsListBox.Name = "contactsListBox";
+            contactsListBox.Size = new Size(159, 439);
+            contactsListBox.TabIndex = 4;
+            contactsListBox.SelectedIndexChanged += contactsListBox_SelectedIndexChanged;
             // 
             // label1
             // 
@@ -106,7 +108,7 @@
             ClientSize = new Size(883, 524);
             Controls.Add(label2);
             Controls.Add(label1);
-            Controls.Add(contactListListBox);
+            Controls.Add(contactsListBox);
             Controls.Add(nameTextBox);
             Controls.Add(messageTextBox);
             Controls.Add(userChatListBox);
@@ -124,7 +126,7 @@
         private ListBox userChatListBox;
         private TextBox messageTextBox;
         private TextBox nameTextBox;
-        private ListBox contactListListBox;
+        private ListBox contactsListBox;
         private Label label1;
         private Label label2;
     }

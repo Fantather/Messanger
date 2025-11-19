@@ -1,15 +1,18 @@
 ﻿using MessangerClient.Models.DTO;
 using MessangerClient.Models.Events;
+using MessangerClient.Network.Serializers;
 using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 
 
@@ -111,7 +114,7 @@ namespace MessangerClient.Network
 
                 // Говорим не возвращаться в UI поток, после завершения метода
                 // То есть, весь оставшийся код будет выполнен в ThreadPool
-                _ = ReceiveLoopAsync(_receiveCts.Token).ConfigureAwait(false);
+                _ = ReceiveLoopAsync(_receiveCts.Token);
 
                 InvokeConnectionStateChanged(true);
             }
@@ -197,10 +200,11 @@ namespace MessangerClient.Network
             {
                 while (!ct.IsCancellationRequested && _client.Connected)
                 {
+                    byte[] messageLengthBytes = await ReadExactlyAsync(LengthPrefixSize, ct);
+
                     // Считываем длинну сообщения
-                    byte[] messageLengthBytes = await ReadExactlyAsync(LengthPrefixSize, ct).ConfigureAwait(false);
                     int messageLength = BitConverter.ToInt32(messageLengthBytes);
-                    _logger.Verbose("Получена длинна сообщения: {messageLength}", messageLength);
+                    _logger.Verbose("Получена длинна сообщения: {messageLength} байт", messageLength);
 
                     // Считываем само сообщение
                     byte[] receivedData = await ReadExactlyAsync(messageLength, ct);
@@ -304,7 +308,7 @@ namespace MessangerClient.Network
             while(offset < messageLength)
             {
                 // Засыпает, до прихода данных
-                int bytesRead = await _stream.ReadAsync(buffer, offset, messageLength - offset, ct).ConfigureAwait(false);
+                int bytesRead = await _stream.ReadAsync(buffer, offset, messageLength - offset, ct);
 
                 if(bytesRead == 0)
                     throw new EndOfStreamException("Соединение разорвано до получения всех данных");
