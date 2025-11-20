@@ -112,6 +112,7 @@ namespace MessangerClient.Controller
 
             _chatRepository = new ChatRepository(logger);
             _contactListRepository = new ContactsListRepository();
+            _logger.Debug("[AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]");
         }
 
 
@@ -126,15 +127,27 @@ namespace MessangerClient.Controller
         /// подписывается на события у <see cref="_udpListener"/>, 
         /// изменяет состояние <see cref="IsMultiacastListening"/>
         /// </remarks>
-        public void StartListenMultycast(string MultycastIpAdress, int port)
+        public void StartListenMultycast(string MultycastIpAdress = "239.0.0.1", int port = 55555)
         {
-            IPAddress multicastIP = IPAddress.Parse(MultycastIpAdress);
-            _udpListener = new UdpNetworkMultycastListener(multicastIP, port);
-            _udpListener.StartLisnteningMultycast();
-            IsMultiacastListening = true;
+            try
+            {
+                _logger.Debug($"[UDP] Попытка запуска прослушивания на {MultycastIpAdress}:{port}...");
 
-            _udpListener.ErrorOccured += OnExceptionOccured;
-            _udpListener.MessageReceived += OnUdpMessageReceived;
+                IPAddress multicastIP = IPAddress.Parse(MultycastIpAdress);
+
+                _udpListener = new UdpNetworkMultycastListener(multicastIP, port);
+
+                _udpListener.StartLisnteningMultycast();
+                IsMultiacastListening = true;
+
+                _udpListener.ErrorOccured += OnExceptionOccured;
+                _udpListener.MessageReceived += OnUdpMessageReceived;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "[UDP] Критическая ошибка при запуске Multicast");
+                InvokeNetworkError(ex);
+            }
         }
 
 

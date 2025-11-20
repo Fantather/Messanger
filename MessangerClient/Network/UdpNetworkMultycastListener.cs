@@ -8,6 +8,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
+using Serilog;
 
 namespace MessangerClient.Network
 {
@@ -26,15 +27,25 @@ namespace MessangerClient.Network
         {
             _multycastIp = multycastIp;
             _port = port;
-            _udpClient = new UdpClient(port);
+            var localEndPoint = new IPEndPoint(IPAddress.Any, port);
 
+            _udpClient = new UdpClient();
             _udpClient.ExclusiveAddressUse = false;
             _udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+
+            try
+            {
+                _udpClient.Client.Bind(localEndPoint);
+            }
+            catch (SocketException ex)
+            {
+                Log.Error($"[UDP] Не удалось занять порт {port}. Возможно, приложение уже запущено? Ошибка: {ex.Message}");
+                throw;
+            }
         }
 
         public void StartLisnteningMultycast()
         {
-            _udpClient.JoinMulticastGroup(_multycastIp);
             _multycastCts = new CancellationTokenSource();
             _ = ListenLoopAsync(_multycastCts.Token);
         }
@@ -42,6 +53,7 @@ namespace MessangerClient.Network
         public void StopListeningMultycast()
         {
             _multycastCts?.Cancel();
+            Log.Debug("[UDP] Прослушивание остановлено");
         }
 
         public void Dispose()
@@ -58,16 +70,42 @@ namespace MessangerClient.Network
         {
             try
             {
-                while (true)
+                _udpClient.JoinMulticastGroup(_multycastIp);
+
+                Log.Debug($"[UDP] Присоединились к multicast группе {_multycastIp}:{_port}");
+
+                while (!ct.IsCancellationRequested)
                 {
                     UdpReceiveResult result = await _udpClient.ReceiveAsync(ct);
+                    Log.Debug($"[UDP] Получено {result.Buffer.Length} байт от {result.RemoteEndPoint}");
                     MessageReceived?.Invoke(this, new DataPackageBytesEventArgs(result.Buffer));
                 }
             }
-            catch (OperationCanceledException) { }
-            catch (ObjectDisposedException) { }
-            catch (Exception ex) { ErrorOccured?.Invoke(this, new ExceptionEventArgs(ex)); }
-            finally { _udpClient.DropMulticastGroup(_multycastIp); }
+            catch (OperationCanceledException)
+            {
+                Log.Error("[UDP] Операция отменена");
+            }
+            catch (ObjectDisposedException)
+            {
+                Log.Error("[UDP] Объект disposed");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"[UDP] Ошибка: {ex.Message}");
+                ErrorOccured?.Invoke(this, new ExceptionEventArgs(ex));
+            }
+            finally
+            {
+                try
+                {
+                    _udpClient.DropMulticastGroup(_multycastIp);
+                    Log.Debug("[UDP] Покинули multicast группу");
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"[UDP] Ошибка при выходе из группы: {ex.Message}");
+                }
+            }
         }
     }
 }

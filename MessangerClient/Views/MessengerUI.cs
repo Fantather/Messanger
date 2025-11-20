@@ -119,6 +119,7 @@ namespace MessangerClient
         private async Task ConnectToServer()
         {
             await _controller.ConnectToServer();
+            _controller.StartListenMultycast();
         }
 
         private void ShowWarningMessageBox(string message)
